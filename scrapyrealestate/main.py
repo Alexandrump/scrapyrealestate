@@ -4,6 +4,7 @@ import scrapyrealestate.db_module as db_module
 from os import path
 from art import *
 from unidecode import unidecode
+from scrapyrealestate.settings import settings
 
 __author__ = "mferark"
 __license__ = "GPL"
@@ -36,8 +37,7 @@ def init_logs():
     ch.setLevel(log_level)
 
     # create formatter
-    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s',
-                                  "%Y-%m-%d %H:%M:%S")
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', "%Y-%m-%d %H:%M:%S")
     # add formatter to ch
     ch.setFormatter(formatter)
 
@@ -151,8 +151,7 @@ def check_config(db_client, db_name):
                                                                             f"<code>MIN PRICE   <b>{data['min_price']}€</b></code>\n"
                                                                             f"<code>MAX PRICE   <b>{data['max_price']}€</b> (0 = NO LIMIT)</code>\n"
                                                                             f"<code>URLS        <b>{urls_ok_count}</b>  →   </code>{urls_ok}\n",
-                                               parse_mode='HTML'
-                                               )
+                                               parse_mode='HTML')
             else:
                 info_message = tb.send_message(data['telegram_chatuserID'],
                                                f"LOADING... scrapyrealestate v{__version__}\n")
@@ -180,14 +179,13 @@ def check_config(db_client, db_name):
 
         # enviem dades
         # comprovem si ja existeix una connexió igual
-        query_dbcon = db_module.query_host_mongodb(db_client, db_name, 'sr_connections', data_host, logger)
-        if not len(query_dbcon) > 0:
-            # creem el registre a mongodb
-            db_module.insert_host_mongodb(db_client, db_name, 'sr_connections', data_host, logger)
+        query_dbcon = db_module.query_host_mysql(connection, 'sr_connections', data_host, logger)
+        if not query_dbcon:
+            # creem el registre a mysql
+            db_module.insert_host_mysql(connection, 'sr_connections', data_host, logger)
         # So ja existeix actualitzem el valor de conexions
         else:
-            db_module.update_host_mongodb(db_client, db_name, 'sr_connections', query_dbcon[0], logger)
-
+            db_module.update_host_mysql(connection, 'sr_connections', data_host, logger)
     else:
         logger.error('TELEGRAM CHAT ID IS EMPTY')
         sys.exit()
@@ -201,10 +199,9 @@ def checks():
         logger.error("TIME UPDATE < 300")
         sys.exit()
     time.sleep(0.05)
-    db_client = db_module.check_bbdd_mongodb(config_db_mongodb, logger)  # comprovem la connexió amb la bbdd
-    info_message = check_config(db_client, config_db_mongodb['db_name'])  # Comprovem parametres configuració
-    return db_client, info_message
-
+    connection = db_module.check_bbdd_mysql(config_db_mysql, logger)
+    info_message = check_config(connection)
+    return connection, info_message
 
 def check_url(url):
     try:
@@ -228,7 +225,7 @@ def init_app_flask():
             proces_server = subprocess.Popen('python3 ./scrapyrealestate/flask_server.py &', shell=True)
         # proces_server.wait()
         pid = proces_server.pid
-        real_pid = pid + 1  # +1 perque el pid real sempre es un numero mes
+        real_pid = pid + 1
         # proces_server.terminate()
     else:
         real_pid = os.popen('pgrep python ./scrapyrealestate/flask_server.py').read()
@@ -243,20 +240,17 @@ def get_config_flask(pid):
             with open('./data/config.json') as json_file:
                 global data
                 data = json.load(json_file)
-                os.system(f'kill {pid}')  # matem el proces del servidor web
+                os.system(f'kill {pid}')
                 break
         except:
             pass
         time.sleep(1)
 
-
 def get_urls(data):
     urls = {}
 
-    # sino hi ha urls, sortim
-    if data.get('url_idealista', '') == '' and data.get('url_pisoscom', '') == '' and data.get('url_fotocasa', '') == '' and data.get(
-        'url_habitaclia', '') == '':
-        logger.warning("NO URLS ENTERED (MINIUM 1 URL)")
+    if data.get('url_idealista', '') == '' and data.get('url_pisoscom', '') == '' and data.get('url_fotocasa', '') == '' and data.get('url_habitaclia', '') == '':
+        logger.warning("NO URLS ENTERED (MINIMUM 1 URL)")
         sys.exit()
 
     start_urls_idealista = data.get('url_idealista', [])
@@ -278,23 +272,22 @@ def get_urls(data):
     return urls
 
 
-def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_chatID, db_client, db_name, telegram_msg, logger):
+def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_chatID, connection, telegram_msg, logger):
     '''
-    Funció que llegeix un json dels habitatges amb les seves propietats.
-    Compara si n'hi ha cap que no estigui a la bbdd i notifica amb missatge.
+    Función que lee un json de las viviendas con sus propiedades.
+    Compara si hay alguna que no esté en la base de datos y notifica con mensaje.
     :param json:
     :return:
     '''
-    # creem l'objecte per enviar tg
+    # creamos el objeto para enviar tg
     tb = telebot.TeleBot('5042109408:AAHBrCsNiuI3lXBEiLjmyxqXapX4h1LHbJs')
 
     new_urls = []
 
-    # Obrir json
-    # with open('flats_idealista.json') as json_file:
+    # Abrir json
     json_file = open(json_file_name)
 
-    # Encapsulem per si dona error
+    # Encapsulamos por si da error
     try:
         data_json = json.load(json_file)
     except:
@@ -316,9 +309,9 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
         new_ids_file = []
         pass
 
-    # Iterem cada pis del diccionar i tractem les dades
+    # Iteramos cada piso del diccionario y tratamos los datos
     for flat in data_json:
-        flat_id = int(flat['id'])  # Convertim a int
+        flat_id = int(flat['id'])  # Convertimos a int
         title = flat["title"].replace("\'", "")
         try:
             town = flat['town']
@@ -340,11 +333,11 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
             type = flat['type']
         except:
             type = ''
-        # Agafem nomes els digits de price, rooms i m2
+        # Cogemos solo los dígitos de price, rooms y m2
         try:
             price_str = flat['price']
         except:
-            prince_str = 0
+            price_str = 0
 
         try:
             price = int(''.join(char for char in flat['price'] if char.isdigit()))
@@ -377,10 +370,9 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
         href = flat['href']
         site = flat['site']
 
-
-        # Si la id del flat no està als ids del fitxer:
+        # Si la id del flat no está en los ids del archivo:
         if not flat_id in ids_file:
-            # Afegim l'id nou a la llista
+            # Añadimos el id nuevo a la lista
             new_ids_file.append(flat_id)
             # data
             data_flat = {
@@ -399,13 +391,11 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
                 'site': site,
                 'online': False
             }
-            # Guardem la vivenda a la bbdd de mongo #  db.sr_flats.createIndex({id: 1},{unique: true})
+            # Guardamos la vivienda en la base de datos MySQL
             if not town == '':
                 town_nf = unidecode(town.replace(' ', '_').lower())
-                # Comparem si hi ha vivendes iguals a mongodb:
-                # Vivendes iguals vol dir que població, preu, m2, num. habitacions son iguals.
-                # També han de ser d'un altre site, es a dir, si estem comparant un pis que està a idealista, buscarem a pisoscom, habitaclia i fotocasa
-                match_flat_list = db_module.query_flat_mongodb(db_client, db_name, town_nf, data_flat, logger)
+                # Comparamos si hay viviendas iguales en MySQL:
+                match_flat_list = db_module.query_flat_mysql(connection, 'sr_flats', data_flat, logger)
                 if len(match_flat_list) > 0:
                     '''logger.debug(f"FLAT MATCH - NOT INSERTING: \n"
                                  f"{data_flat} \n"
@@ -413,18 +403,18 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
                     pass
                 else:
                     if not site == 'fotocasa':
-                        db_module.insert_flat_mongodb(db_client, db_name, town_nf, data_flat, logger)
+                        db_module.insert_flat_mysql(connection, 'sr_flats', data_flat, logger)
             if price == 'Aconsultar':
                 continue
             elif price == 'A consultar':
                 continue
 
-            # Si el preu es <= max_price
+            # Si el precio es <= max_price
             if int(max_price) >= int(price) >= int(min_price) or int(max_price) == 0 and int(price) >= int(min_price):
-                # Enviar missatge a telegram si es True
+                # Enviar mensaje a telegram si es True
                 if telegram_msg:
                     new_urls.append(href)
-                    try: mitja_price_m2 = '%.2f' % (price / float(m2)) # Formatem tg del preu, m2, mitjana i href
+                    try: mitja_price_m2 = '%.2f' % (price / float(m2)) # Formateamos tg del precio, m2, media y href
                     except:
                         mitja_price_m2 = ''
                     tb.send_message(tg_chatID, f"<b>{price_str}</b> [{m2_tg}] → {mitja_price_m2}€/m²\n{href}", parse_mode='HTML')
@@ -443,33 +433,26 @@ def check_new_flats(json_file_name, scrapy_rs_name, min_price, max_price, tg_cha
         logger.debug(
             f"SPIDER FINISHED - [NEW: {len(new_urls)}] [TOTAL: {len(data_json)}]: {new_urls}")
 
-
-def scrap_realestate(db_client, telegram_msg):
+def scrap_realestate(connection, telegram_msg):
     start_time = time.time()
 
-    # Si el nom del projecte te alguna "-" les canviem ja que dona problemes amb el sqlite
+    # Si el nombre del proyecto tiene algún "-", lo cambiamos ya que da problemas con sqlite
     scrapy_rs_name = data['scrapy_rs_name'].replace("-", "_")
     scrapy_log = data['log_level_scrapy'].upper()
     proxy_idealista = data['proxy_idealista']
 
     urls = []
-    # urls.append(data['url_idealista'])
-    # urls.append(data['url_pisoscom'])
-    # urls.append(data['url_fotocasa'])
-    # urls.append(data['url_habitaclia'])
     for key in data:
         if "url" in key and isinstance(data[key], list):
             urls += data[key]
         elif "url" in key:
             urls.append(data[key])
 
-    # Mesclem les urls per no repetir la mateixa spider
+    # Mezclamos las urls para no repetir la misma spider
     urls_mixed = mix_list(urls)
 
-    # iterem les urls que hi ha i fem scrape
+    # Iteramos las urls que hay y hacemos scrape
     for url in urls_mixed:
-        # Mirem quin portal es ['idealista', 'pisoscom', 'fotocasa', 'habitaclia', 'yaencontre', 'enalquiler' ]
-        # try:
         if url == '':
             continue
 
@@ -481,7 +464,7 @@ def scrap_realestate(db_client, telegram_msg):
             portal_name = portal_url
             portal_name_url = ''
 
-        # Validem que les spiders hi son
+        # Validamos que las spiders existen
         command = "scrapy list"
         process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
         process.wait()
@@ -489,11 +472,10 @@ def scrap_realestate(db_client, telegram_msg):
             logger.error("SPIDERS NOT DETECTED")
             sys.exit()
 
-        # Fem crawl amb la spider depenen del portal amb la url
+        # Hacemos crawl con la spider dependiendo del portal con la url
         logger.debug(f"SCRAPING PORTAL {portal_name_url} FROM {scrapy_rs_name}...")
         if portal_name_url == 'idealista.com':
             url_last_flats = url + '?ordenado-por=fecha-publicacion-desc'
-            # Mirem si està o no activat el proxy i fem crawl cridant la spider per terminal
             if proxy_idealista == 'on':
                 logger.debug('IDEALISTA PROXY ACTIVATED')
                 os.system(
@@ -508,43 +490,40 @@ def scrap_realestate(db_client, telegram_msg):
         elif portal_name_url == 'fotocasa.es':
             os.system(f"scrapy crawl -L {scrapy_log} fotocasa -o ./data/{scrapy_rs_name}.json -a start_urls={url}")
         elif portal_name_url == 'habitaclia.com':
-            # Fem crawl cridant la spider per terminal
             url_last_flats = url + '?ordenar=mas_recientes'
             os.system(
                 f"scrapy crawl -L {scrapy_log} habitaclia -o ./data/{scrapy_rs_name}.json -a start_urls={url_last_flats}")
 
         logger.debug(f"CRAWLED {portal_name.upper()}")
 
-    # Arreglar JSON - S'han d'unir les diferents parts - o treure les parts que els uneixen (][)
+    # Arreglar JSON - Unir las diferentes partes o quitar las partes que los unen (][)
     logger.debug(f"EDITING ./data/{scrapy_rs_name}.json...")
     with open(f'./data/{scrapy_rs_name}.json', 'r') as file:
         filedata = file.read()
 
-    # Replace the target string
+    # Reemplazar la cadena objetivo
     filedata = filedata.replace('\n][', ',')
-    # Write the file out again
+    # Escribir el archivo nuevamente
     with open(f'./data/{scrapy_rs_name}.json', 'w') as file:
         file.write(filedata)
         
-    # Cridem la funció que comprova els pisos nous que hi ha i els envia per telegram i guarda a la bbdd
+    # Llamar a la función que comprueba los pisos nuevos y los envía por telegram y guarda en la base de datos
     check_new_flats(f"./data/{scrapy_rs_name}.json",
-                                scrapy_rs_name,
-                                data['min_price'],
-                                data['max_price'],
-                                data['telegram_chatuserID'],
-                                db_client,
-                                'sr_flats',
-                                telegram_msg,
-                                logger)
-
+                    scrapy_rs_name,
+                    data['min_price'],
+                    data['max_price'],
+                    data['telegram_chatuserID'],
+                    connection,
+                    telegram_msg,
+                    logger)
 
 def init():
-    global config_db_mongodb
-    config_db_mongodb = {
-        'db_user': "scrapyrealestate",
-        'db_password': "23sjz0UJdfRwsIZm",
-        'db_host': "scrapyrealestate.sk0pae1.mongodb.net",
-        'db_name': f"scrapyrealestate{__version__.replace('.', '')}",
+    global config_db_mysql
+    config_db_mysql = {
+        'db_user': settings.MYSQL_USER,
+        'db_password': settings.MYSQL_PASSWORD,
+        'db_host':  settings.MYSQL_HOST,
+        'db_name': settings.MYSQL_DATABASE,
     }
     print('LOADING...')
     time.sleep(1)
@@ -553,11 +532,11 @@ def init():
     print(f'scrapyrealestate v{__version__}')
 
     time.sleep(0.05)
-    get_config()  # Agafem la configuració
+    get_config()  # Obtener la configuración
     time.sleep(0.05)
-    logger = init_logs()  # iniciem els logs
+    logger = init_logs()  # Iniciar los logs
     time.sleep(0.05)
-    db_client, info_message = checks()  # Comprovacions
+    connection, info_message = checks()  # Comprobaciones
     time.sleep(0.05)
     count = 0
     telegram_msg = False
@@ -566,25 +545,24 @@ def init():
 
     while True:
         try:
-            os.remove(f"./data/{scrapy_rs_name}.json")  # Eliminem l'arxiu json
+            os.remove(f"./data/{scrapy_rs_name}.json")  # Eliminar el archivo json
         except:
             pass
 
-        # Si senf_first està activat o bé hem passat al segon cicle, canviem telegram_msg a true per enviar els missatges
+        # Si send_first está activado o hemos pasado al segundo ciclo, cambiamos telegram_msg a true para enviar los mensajes
         if send_first == 'True' or count > 0:
             telegram_msg = True
             logger.debug('TELEGRAM MSG ENABLED')
 
         # try:
         # Cridem la funció d'scraping
-        scrap_realestate(db_client, telegram_msg)
+        scrap_realestate(connection, telegram_msg)
         # except:
         #    pass
 
-        count += 1  # Sumem 1 cicle
+        count += 1  # Sumar 1 ciclo
         logger.info(f"SLEEPING {data['time_update']} SECONDS")
         time.sleep(int(data['time_update']))
-
 
 if __name__ == "__main__":
     init()

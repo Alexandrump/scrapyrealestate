@@ -8,7 +8,11 @@ scrapy-rotating-proxies
 requests
 pyTelegramBotAPI
 requests_html
-pymongo
+#pymongo
 wheel
 flask
 unidecode
+mysql-connector-python
+#flask-sqlalchemy
+#flask-marshmallow
+#marshmallow-sqlalchemy

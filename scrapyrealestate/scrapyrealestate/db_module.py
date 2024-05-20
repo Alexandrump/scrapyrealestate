@@ -1,112 +1,74 @@
-import sys, datetime, pymongo
+import sys, datetime
+import mysql.connector
+from mysql.connector import Error
 
-def insert_host_mongodb(db_client, db_name, db_col, data_host, logger):
-    #try:
-    db = db_client[db_name]  # creem la connexio amb la bbdd de mongodb
-    col = db[db_col]  # creem una colecció amb el nom de la població
-    col.insert_one({"id": data_host['id'],
-                      "chat_id": data_host['chat_id'],
-                      "group_name": data_host['group_name'],
-                      "time_refresh": data_host['refresh'],
-                      "min_price": data_host['min_price'],
-                      "max_price": data_host['max_price'],
-                      "urls": data_host['urls'],
-                      "so": data_host['so'],
-                      "host_name": data_host['host_name'],
-                      "connections": data_host['connections'],
-                      "first_connection": datetime.datetime.now(),
-                      "last_connection": datetime.datetime.now()
-                      })
-    #except:
-        #logger.error(f"ERROR WHILE INSERTING MONGODB. MAYBE YOU ARE NOT USING LAST VERSION.")
-        #sys.exit()
-
-    #logger.debug(f"INSERT TO MONGODB: {data_host}")
-
-def query_host_mongodb(db_client, db_name, db_col, data_host, logger):
+def create_connection(host_name, user_name, user_password, db_name):
+    connection = None
     try:
-        db = db_client[db_name]  # creem la connexio amb la bbdd de mongodb
-        col = db[db_col]  # creem una colecció amb el nom de la població
+        connection = mysql.connector.connect(
+            host=host_name,
+            user=user_name,
+            passwd=user_password,
+            database=db_name,
+        )
+        print("Connection to MySQL DB successful")
+    except Error as e:
+        print(f"The error '{e}' occurred")
+    return connection
 
-        myquery = {"chat_id": data_host['chat_id'], "group_name": data_host['group_name']}
-
-        host_list = col.find(myquery)
-        match_host_list = []
-
-        for host in host_list:
-            match_host_list.append(host)
-        return match_host_list
-    except pymongo.errors.OperationFailure:
-        logger.error(f"MAYBE YOU ARE NOT USING LAST VERSION.")
-        sys.exit()
-
-
-def update_host_mongodb(db_client, db_name, db_col, data_host, logger):
-    # try:
-    db = db_client[db_name]  # creem la connexio amb la bbdd de mongodb
-    col = db[db_col]  # creem una colecció amb el nom de la població
-
-    myquery = {"chat_id": data_host['chat_id'], "group_name": data_host['group_name']}
-    # El nou valor incrementa 1 a la connexio
-    newvalues = {"$set": {"connections":  data_host['connections']+1}}
-    col.update_one(myquery, newvalues)
-    # Actualizem l'ultima data
-    newvalues2 = {"$set": {"last_connection": datetime.datetime.now()}}
-    col.update_one(myquery, newvalues2)
-
-
-def insert_flat_mongodb(db_client, db_name, db_col, data_flat, logger):
-    #try:
-    db = db_client[db_name] # creem la connexio amb la bbdd de mongodb
-    col = db[db_col] # creem una colecció amb el nom de la població
-    col.create_index('id', unique = True) # creem index
+def execute_query(connection, query, data=None):
+    cursor = connection.cursor()
     try:
-        col.insert_one({"id": data_flat['id'],
-                          "price": data_flat['price'],
-                          "m2": data_flat['m2'],
-                          "rooms": data_flat['rooms'],
-                          "floor": data_flat['floor'],
-                          "town": data_flat['town'],
-                          "neighbour": data_flat['neighbour'],
-                          "street": data_flat['street'],
-                          "number": data_flat['number'],
-                          "title": data_flat['title'],
-                          "href": data_flat['href'],
-                          "site": data_flat['site'],
-                          "type": data_flat['type'],
-                          "online": data_flat['online'],
-                          "datetime": datetime.datetime.now()
-                          })
-    except pymongo.errors.DuplicateKeyError:
-        '''logger.debug(f"ID {data_flat['id']} EXISTS ID MONGO DB. PASS.")'''
-        pass
-    #except:
-        #logger.error(f"ERROR WHILE INSERTING MONGODB. MAYBE YOU ARE NOT USING LAST VERSION.")
-     #   pass
+        if data:
+            cursor.execute(query, data)
+        else:
+            cursor.execute(query)
+        connection.commit()
+        print("Query executed successfully")
+    except Error as e:
+        print(f"The error '{e}' occurred")
 
-def query_flat_mongodb(db_client, db_name, db_col, data_flat, logger):
-    #try:
-    db = db_client[db_name]  # creem la connexio amb la bbdd de mongodb
-    col = db[db_col]  # creem una colecció amb el nom de la població
+def insert_host_mysql(connection, table_name, data_host, logger):
+    query = f"""
+    INSERT INTO {table_name} (id, chat_id, group_name, time_refresh, min_price, max_price, urls, so, host_name, connections, first_connection, last_connection)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    data = (
+        data_host['id'], data_host['chat_id'], data_host['group_name'], data_host['refresh'], data_host['min_price'],
+        data_host['max_price'], data_host['urls'], data_host['so'], data_host['host_name'], data_host['connections'],
+        datetime.datetime.now(), datetime.datetime.now()
+    )
+    execute_query(connection, query, data)
 
-    myquery = {"site": {"$ne": f"{data_flat['site']}"},"price": data_flat['price'], "m2": data_flat['m2'], "rooms": data_flat['rooms']}
+def query_host_mysql(connection, table_name, data_host, logger):
+    query = f"SELECT * FROM {table_name} WHERE chat_id = %s AND group_name = %s"
+    cursor = connection.cursor()
+    cursor.execute(query, (data_host['chat_id'], data_host['group_name']))
+    result = cursor.fetchall()
+    return result
 
-    flat_list = col.find(myquery)
-    match_flat_list = []
+def update_host_mysql(connection, table_name, data_host, logger):
+    query = f"UPDATE {table_name} SET connections = connections + 1, last_connection = %s WHERE chat_id = %s AND group_name = %s"
+    execute_query(connection, query, (datetime.datetime.now(), data_host['chat_id'], data_host['group_name']))
 
+def insert_flat_mysql(connection, table_name, data_flat, logger):
+    query = f"""
+    INSERT INTO {table_name} (id, price, m2, rooms, floor, town, neighbour, street, number, title, href, type, site, online, datetime)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    data = (
+        data_flat['id'], data_flat['price'], data_flat['m2'], data_flat['rooms'], data_flat['floor'], data_flat['town'],
+        data_flat['neighbour'], data_flat['street'], data_flat['number'], data_flat['title'], data_flat['href'],
+        data_flat['type'], data_flat['site'], data_flat['online'], datetime.datetime.now()
+    )
+    execute_query(connection, query, data)
 
-    for flat in flat_list:
-        match_flat_list.append(flat)
-    return match_flat_list
-    #except pymongo.errors.OperationFailure:
-    #    logger.error(f"MAYBE YOU ARE NOT USING LAST VERSION.")
+def query_flat_mysql(connection, table_name, data_flat, logger):
+    query = f"SELECT * FROM {table_name} WHERE site != %s AND price = %s AND m2 = %s AND rooms = %s"
+    cursor = connection.cursor()
+    cursor.execute(query, (data_flat['site'], data_flat['price'], data_flat['m2'], data_flat['rooms']))
+    result = cursor.fetchall()
+    return result
 
-def check_bbdd_mongodb(config_bbdd, logger):
-    try:
-        client = pymongo.MongoClient(f"mongodb+srv://{config_bbdd['db_user']}:{config_bbdd['db_password']}@{config_bbdd['db_host']}/?retryWrites=true&w=majority")
-    except pymongo.errors.ConfigurationError:
-        logger.error("INTERNET ERROR CONNECTION")
-        sys.exit()
-
-    logger.debug(f"CONNECTED TO MONGODB")
-    return client
+def check_bbdd_mysql(config_db_mysql, logger):
+    return create_connection(config_db_mysql['db_host'], config_db_mysql['db_user'], config_db_mysql['db_password'], config_db_mysql['db_name'])
