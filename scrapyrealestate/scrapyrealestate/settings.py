@@ -9,7 +9,7 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
-MYSQL_HOST = 'localhost'
+MYSQL_HOST = 'db'
 MYSQL_DATABASE = f"scrapyrealestate_{__version__.replace('.', '')}"
 MYSQL_USER = 'root'
 MYSQL_PASSWORD = 'password'

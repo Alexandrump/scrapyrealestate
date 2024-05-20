@@ -10,4 +10,24 @@ services:
     restart: always
     stdin_open: true # docker run -i
     tty: true        # docker run -t
+    depends_on:
+      - db
     #network_mode: host
+
+  db:
+    image: mysql:5.7
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: scrapyrealestate
+      MYSQL_USER: root
+      MYSQL_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./scrapyrealestate/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+
+volumes:
+  db_data:
